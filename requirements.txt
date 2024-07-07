@@ -3,4 +3,4 @@ chromadb
 pypdf
 pytest
 langchain-community
-sentence-transformers
+flask-cors
