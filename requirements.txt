@@ -4,3 +4,5 @@ pypdf
 pytest
 langchain-community
 flask-cors
+langchainhub
+langchain_core
