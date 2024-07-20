@@ -1,96 +1,93 @@
 from flask import Flask, request, jsonify
-from langchain_community.vectorstores import Chroma 
-from langchain.schema.document import Document
 from embedding import get_embedding_model
-from text_processing import split_documents, load_documents
+from langchain_community.llms import Ollama
 import os
-import shutil
+from utils import split_documents, add_to_chroma, retriever_generator, customize_rag_prompt, customize_rag_chain, get_answer
+from langchain_chroma import Chroma
+
+
+
+
 
 app = Flask(__name__)
 
-CHROMA_PATH = '/Users/kenlam/Desktop/Data science/ML projects/RAG_resume/app/chroma'
+llm = Ollama(model = "mistral")
+embedding = get_embedding_model()
+# Ensure upload folder exists 
+UPLOAD_FOLDER = 'upload'
+if not os.path.exists(UPLOAD_FOLDER):
+    os.mkdir(UPLOAD_FOLDER)
 
-def clear_database():
-    if os.path.exists(CHROMA_PATH):
-        shutil.rmtree(CHROMA_PATH)
-    os.makedirs(CHROMA_PATH)
+# DB path
+DB_PATH = 'db'
 
-def add_to_chroma(chunks: list[Document]):
-    # Load the existing database
-    db = Chroma(
-        persist_directory=CHROMA_PATH,
-        embedding_function=get_embedding_model()
-    )
+@app.route("/chat", methods=["POST"])
+def chat():
+    json_content = request.json
+    # Get the query
+    query = json_content.get("query")
 
-    # Add or update the documents
-    chunks_with_ids = calculate_chunk_ids(chunks)
-    existing_items = db.get(include=[])  # IDs are always included by default
-    existing_ids = set(existing_items["ids"])
+    print("Loading the vectorstore")
+    # Load the vectorstore from 'db' folder
+    vectorstore = Chroma(persist_directory = DB_PATH,
+                         embedding_function = embedding)
+    print("Successfully loading the vectorstore")
 
-    new_chunks = []
-    for chunk in chunks_with_ids:
-        if chunk.metadata["id"] not in existing_ids:
-            new_chunks.append(chunk)
+    # Creating a retriever
+    print("Creating a retriever")
+    retriever = retriever_generator(vectorstore)
+    
+    # Create a prompt
+    prompt = customize_rag_prompt()
 
-    if len(new_chunks) > 0:
-        new_chunk_ids = [chunk.metadata["id"] for chunk in new_chunks]
-        db.add_documents(new_chunks, ids=new_chunk_ids)
-        db.persist()
+    # Create a RAG chain
+    rag_chain = customize_rag_chain(prompt, llm, retriever)
+    
+    # Get the answer
+    answer = get_answer(rag_chain, query)
 
-def calculate_chunk_ids(chunks):
-    last_page_id = None
-    current_chunk_index = 0
+    response_json = {"answer": answer}
+    return response_json
 
-    for chunk in chunks:
-        source = chunk.metadata.get("source")
-        page = chunk.metadata.get("page")
-        current_page_id = f"{source}:{page}"
-
-        if current_page_id == last_page_id:
-            current_chunk_index += 1
-        else:
-            current_chunk_index = 0
-
-        chunk_id = f"{current_page_id}:{current_chunk_index}"
-        last_page_id = current_page_id
-
-        chunk.metadata["id"] = chunk_id
-
-    return chunks
-
-@app.route('/upload-and-query', methods=['POST'])
-def upload_document():
+@app.route("/upload", methods = ["POST"])
+def upload():
     try:
+        # Check if file part is in request
         if 'file' not in request.files:
-            return jsonify({"error": "No file part"}), 400
+            return jsonify({"error": "No file part in the reqest"}), 400
+        
+        file = request.files["file"]
+        
+        # Check if file is uploaded
+        if file.filename == "":
+            return jsonify({"error": "No file is selected"}), 400
+        
+        # Create a join path for the file
+        save_file = os.path.join(UPLOAD_FOLDER, file.filename)
 
-        file = request.files['file']
-        if file.filename == '':
-            return jsonify({"error": "No selected file"}), 400
+        # Save the file in a folder
+        file.save(save_file)
+        print(f"File {file.filename} is saved successfully")
 
-        # Save the file to a temporary directory or process it directly
-        # For simplicity, assuming we save to CHROMA_PATH directly
-        file.save(os.path.join(CHROMA_PATH, file.filename))
+        # Intialize a loader
+        loader = PyPDFDirectoryLoader(UPLOAD_FOLDER)
+        # Load all docs in
+        docs = loader.load()
+        # Split the docs into chunks
+        split_docs = split_documents(docs)
+        # Create a vector stores to store all the chunks
+        vectorstore = add_to_chroma(split_docs, embedding, DB_PATH)
 
-        # Process uploaded document
-        # documents = []  # Assuming you need to convert the file to Document objects
-        documents = load_documents(CHROMA_PATH)
-        chunks = split_documents(documents)
-        add_to_chroma(chunks)
-
-        # Handle query
-        query_text = request.form.get('query')
-        if query_text:
-            # Query processing logic (similar to previous implementation)
-            # Use query_text to retrieve response from RAG app or database
-            response = {"message": "Document uploaded and query processed successfully"}
-            return jsonify(response), 200
-        else:
-            return jsonify({"error": "No query provided"}), 400
-
+        success_message = {
+            "status": "File uploaded and processed successfully",
+            "filename": file.filename,
+            "length of chunks": len(split_docs)
+        }
+        return success_message
 
     except Exception as e:
+        print(f"An error has occured: {e}")
         return jsonify({"error": str(e)}), 500
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     app.run(debug=True)
