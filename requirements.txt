@@ -6,3 +6,5 @@ langchain-community
 flask-cors
 langchainhub
 langchain_core
+langchain_community
+langchain_chroma
