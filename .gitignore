@@ -4,3 +4,5 @@ app/__pycache__/
 app/chroma
 app/db
 app/upload/
+model/corpus.txt
+model/list_resources.csv
