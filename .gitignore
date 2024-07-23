@@ -5,4 +5,5 @@ app/chroma
 app/db
 app/upload/
 model/corpus.txt
+model/corpus_video.txt
 model/list_resources.csv
