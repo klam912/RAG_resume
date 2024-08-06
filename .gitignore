@@ -6,4 +6,9 @@ app/db
 app/upload/
 model/corpus.txt
 model/corpus_video.txt
+model/corpus_from_web_crawler.txt
 model/list_resources.csv
+config.json
+upload/
+db/
+hamilton_resources/
